@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+dtek_bot.db
+generated_charts/
+test_*.py
+test_text.png
