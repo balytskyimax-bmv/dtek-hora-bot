@@ -37,15 +37,26 @@
 
 ---
 
-## 💻 Запуск бота
+## 💻 Запуск на сервері через Docker (рекомендовано)
 
-### Швидкий запуск:
+Проєкт підготовлено до автономної роботи в Docker-контейнері (з автоматичним перезапуском при ребуті сервера):
+
+```bash
+# 1. Запуск контейнера у фоні
+docker compose up -d --build
+
+# 2. Перегляд логів роботи
+docker compose logs -f
+
+# 3. Зупинка (за потреби)
+docker compose down
+```
+
+---
+
+## 💻 Локальний запуск (на Mac)
+
 ```bash
 cd /Users/mac/.gemini/antigravity/scratch/dtek_shutdowns_bot
 ./run.sh
-```
-
-### Фоновий запуск (щоб працював у фоні):
-```bash
-nohup /Users/mac/.gemini/antigravity/scratch/dtek_shutdowns_bot/run.sh > bot.log 2>&1 &
 ```
