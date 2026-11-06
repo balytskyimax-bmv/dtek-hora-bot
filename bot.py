@@ -1,9 +1,11 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -451,6 +453,25 @@ async def cb_check(call: CallbackQuery) -> None:
     )
     await call.message.answer(res_text, reply_markup=get_main_keyboard())
 
+# ----------------- Render Web Server (for 24/7 Uptime) -----------------
+
+async def health_check(request: web.Request) -> web.Response:
+    return web.Response(text="DTEK Hora Light Bot is running 24/7!")
+
+async def start_web_server() -> web.AppRunner | None:
+    port = int(os.getenv("PORT", "0"))
+    if port > 0:
+        app = web.Application()
+        app.router.add_get("/", health_check)
+        app.router.add_get("/health", health_check)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info(f"Health check web server running on port {port}")
+        return runner
+    return None
+
 # ----------------- Main Entrypoint -----------------
 
 async def main() -> None:
@@ -463,11 +484,16 @@ async def main() -> None:
     # Launch background monitoring loop
     monitor_task = asyncio.create_task(monitoring_loop())
 
+    # Start health check server if PORT is provided (Render.com)
+    web_runner = await start_web_server()
+
     logger.info("Starting Telegram bot polling...")
     try:
         await dp.start_polling(bot)
     finally:
         monitor_task.cancel()
+        if web_runner:
+            await web_runner.cleanup()
         await bot.session.close()
 
 if __name__ == "__main__":
