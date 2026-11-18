@@ -16,6 +16,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from config import (
     BOT_TOKEN,
     GROUP_CHAT_ID,
+    ADMIN_ID,
     TOPIC_ID,
     CHECK_INTERVAL_SECONDS,
     SEND_IMAGE_WITH_ALERT,
@@ -104,12 +105,8 @@ async def broadcast_schedule(
     updated_str: str,
     alert_type: str,
     tomorrow_schedule: dict | None = None
-) -> None:
-    """Send an alert to the designated Telegram group/topic."""
-    if not GROUP_CHAT_ID:
-        logger.warning("GROUP_CHAT_ID is not configured, skipping broadcast.")
-        return
-
+) -> bool:
+    """Send an alert to the designated Telegram group/topic, or fallback to ADMIN_ID."""
     topic_id = await get_topic_id()
     text = format_schedule_message(
         schedule,
@@ -118,32 +115,59 @@ async def broadcast_schedule(
         tomorrow_schedule=tomorrow_schedule
     )
 
-    try:
-        # First send the text message with buttons
-        await bot.send_message(
-            chat_id=GROUP_CHAT_ID,
-            message_thread_id=topic_id,
-            text=text,
-            reply_markup=get_main_keyboard()
-        )
+    delivered = False
 
-        # Send fresh dynamically generated schedule image
-        if SEND_IMAGE_WITH_ALERT:
-            try:
-                img_path = generate_schedule_image(schedule, updated_str)
-                date_label = schedule.get("date_formatted", "")
-                await bot.send_photo(
-                    chat_id=GROUP_CHAT_ID,
-                    message_thread_id=topic_id,
-                    photo=FSInputFile(img_path),
-                    caption=f"🖼 <i>Графік відключень на {date_label}</i>"
-                )
-            except Exception as img_err:
-                logger.warning(f"Failed to send schedule photo: {img_err}")
+    # 1. Try sending to GROUP_CHAT_ID first
+    if GROUP_CHAT_ID:
+        try:
+            await bot.send_message(
+                chat_id=GROUP_CHAT_ID,
+                message_thread_id=topic_id,
+                text=text,
+                reply_markup=get_main_keyboard()
+            )
+            if SEND_IMAGE_WITH_ALERT:
+                try:
+                    img_path = generate_schedule_image(schedule, updated_str)
+                    date_label = schedule.get("date_formatted", "")
+                    await bot.send_photo(
+                        chat_id=GROUP_CHAT_ID,
+                        message_thread_id=topic_id,
+                        photo=FSInputFile(img_path),
+                        caption=f"🖼 <i>Графік відключень на {date_label}</i>"
+                    )
+                except Exception as img_err:
+                    logger.warning(f"Failed to send schedule photo to group: {img_err}")
+            delivered = True
+            logger.info(f"Broadcasted schedule alert ({alert_type}) to group for {schedule.get('date_str')}")
+        except Exception as e:
+            logger.warning(f"Could not broadcast to GROUP_CHAT_ID ({GROUP_CHAT_ID}): {e}")
 
-        logger.info(f"Broadcasted schedule alert ({alert_type}) for {schedule.get('date_str')}")
-    except Exception as e:
-        logger.error(f"Error broadcasting schedule to Telegram: {e}")
+    # 2. Fallback to ADMIN_ID private chat if group delivery did not happen
+    if not delivered and ADMIN_ID:
+        try:
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=text,
+                reply_markup=get_main_keyboard()
+            )
+            if SEND_IMAGE_WITH_ALERT:
+                try:
+                    img_path = generate_schedule_image(schedule, updated_str)
+                    date_label = schedule.get("date_formatted", "")
+                    await bot.send_photo(
+                        chat_id=ADMIN_ID,
+                        photo=FSInputFile(img_path),
+                        caption=f"🖼 <i>Графік відключень на {date_label}</i>"
+                    )
+                except Exception as img_err:
+                    logger.warning(f"Failed to send schedule photo to admin: {img_err}")
+            delivered = True
+            logger.info(f"Broadcasted schedule alert ({alert_type}) to ADMIN_ID for {schedule.get('date_str')}")
+        except Exception as e:
+            logger.error(f"Error broadcasting schedule to ADMIN_ID: {e}")
+
+    return delivered
 
 async def monitoring_loop() -> None:
     """Background task to poll DTEK and broadcast updates."""
@@ -171,25 +195,27 @@ async def monitoring_loop() -> None:
                         # New day discovered!
                         alert_type = "new_tomorrow" if s.get("is_tomorrow") else "normal"
                         logger.info(f"New schedule detected for {date_str} (alert: {alert_type})")
-                        await broadcast_schedule(
+                        ok = await broadcast_schedule(
                             s,
                             updated_str=updated_str,
                             alert_type=alert_type,
                             tomorrow_schedule=tomorrow_s if s.get("is_today") else None
                         )
-                        sent_at = datetime.now(KYIV_TZ).isoformat()
-                        await save_sent_schedule(date_str, curr_hash, str(s["raw_hours"]), sent_at)
+                        if ok:
+                            sent_at = datetime.now(KYIV_TZ).isoformat()
+                            await save_sent_schedule(date_str, curr_hash, str(s["raw_hours"]), sent_at)
                     elif stored["hash"] != curr_hash:
                         # Schedule was modified by DTEK!
                         logger.info(f"Schedule for {date_str} has been modified by DTEK!")
-                        await broadcast_schedule(
+                        ok = await broadcast_schedule(
                             s,
                             updated_str=updated_str,
                             alert_type="updated",
                             tomorrow_schedule=tomorrow_s if s.get("is_today") else None
                         )
-                        sent_at = datetime.now(KYIV_TZ).isoformat()
-                        await save_sent_schedule(date_str, curr_hash, str(s["raw_hours"]), sent_at)
+                        if ok:
+                            sent_at = datetime.now(KYIV_TZ).isoformat()
+                            await save_sent_schedule(date_str, curr_hash, str(s["raw_hours"]), sent_at)
                     else:
                         # Unchanged
                         pass

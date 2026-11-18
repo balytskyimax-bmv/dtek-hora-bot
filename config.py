@@ -10,6 +10,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 # Target Group Chat ID (e.g. -100xxxxxxxxxx)
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0")) if os.getenv("GROUP_CHAT_ID") else None
 
+# Admin Private Chat ID (fallback if bot is not in group yet)
+ADMIN_ID = int(os.getenv("ADMIN_ID", "467567653")) if os.getenv("ADMIN_ID", "467567653") else None
+
 # Topic ID (Forum thread)
 TOPIC_ID = int(os.getenv("TOPIC_ID", "0")) if os.getenv("TOPIC_ID") else None
 
